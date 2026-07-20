@@ -6,7 +6,7 @@ Live visuals today mean TouchDesigner, Resolume, or Notch: downloads, licenses, 
 and a learning curve measured in months. cueVJ is a URL. Open it, let it hear your music, and
 scroll. That's the whole instrument.
 
-> **[Try the demo](https://cuevj.com)** *(link goes live once deployed)*
+> **[Try the demo at cuevj.com](https://cuevj.com)**
 
 Built by **Ronny Singh**.
 
@@ -99,7 +99,7 @@ Honest caveats, because a framework that oversells itself wastes your time:
 ## Collaborate
 
 Making something with this, or want custom visuals for a set, a release, or a show? I'd like to
-hear about it. [Get in touch](https://cuevj.com#contact).
+hear about it. [Get in touch](https://cuevj.com#contact), or email ronny@cuevj.com.
 
 ## License
 
