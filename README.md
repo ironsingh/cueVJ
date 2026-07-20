@@ -1,6 +1,6 @@
 # cueVJ
 
-**An experimental web-native live-visuals framework.** Mic in, vectors out. VJ from a browser tab.
+**A web-native live-visuals framework.** Mic in, vectors out. VJ from a browser tab.
 
 Live visuals today mean TouchDesigner, Resolume, or Notch: downloads, licenses, GPU requirements,
 and a learning curve measured in months. cueVJ is a URL. Open it, let it hear your music, and
@@ -94,7 +94,7 @@ Honest caveats, because a framework that oversells itself wastes your time:
 - **Not a compositor.** No video layers, no recording, no blend-mode stack in this build.
 - **CPU bound.** Pure SVG means no GPU acceleration, so very dense scenes can drop frames on old
   laptops. That's a deliberate trade for crisp, resolution-independent vectors.
-- **Experimental.** The API is pre-1.0 and will change.
+- **Pre-1.0.** The API will still change.
 
 ## Collaborate
 

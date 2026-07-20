@@ -1,5 +1,5 @@
 /*!
- * cueVJ: an experimental web-native live-visuals framework.
+ * cueVJ: a web-native live-visuals framework.
  * https://github.com/ironsingh/cueVJ
  *
  * Copyright (c) 2026 Ronny Singh. All rights reserved.
