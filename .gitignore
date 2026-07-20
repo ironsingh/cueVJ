@@ -5,3 +5,6 @@ CLAUDE.local.md
 
 # Pre-rename original, kept locally as history
 reference/
+
+# Internal design docs and planning
+docs/
