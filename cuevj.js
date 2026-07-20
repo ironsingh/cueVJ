@@ -1333,7 +1333,328 @@
           }
         }
       };
-    }
+    },
+    reactor: function (opts) {
+      opts = opts || {};
+      return {
+        name: opts.name || "reactor",
+        params: {
+          filaments: opts.filaments || 190,
+          motes: opts.motes || 150,
+          halos: opts.halos || 26,
+          speed: opts.speed || 1,
+          swirl: opts.swirl || 1
+        },
+
+        setup: function (ctx) {
+          var r = ctx.rng, i;
+          var NS = "http://www.w3.org/2000/svg";
+
+          /* Bloom. Two blurs at different radii, merged under the original: a
+             tight one for the core of the glow and a wide one for the falloff.
+             One blur alone reads as an out-of-focus copy, two read as light. */
+          var defs = ctx.el("defs", {});
+          var filt = document.createElementNS(NS, "filter");
+          var uid = "rx" + Math.floor(r() * 1e6);
+          filt.setAttribute("id", uid);
+          filt.setAttribute("x", "-70%");
+          filt.setAttribute("y", "-70%");
+          filt.setAttribute("width", "240%");
+          filt.setAttribute("height", "240%");
+
+          function blur(dev, result) {
+            var b = document.createElementNS(NS, "feGaussianBlur");
+            b.setAttribute("in", "SourceGraphic");
+            b.setAttribute("stdDeviation", dev);
+            b.setAttribute("result", result);
+            filt.appendChild(b);
+            return b;
+          }
+          this.wide = blur(9, "wide");
+          this.tight = blur(2.4, "tight");
+
+          var merge = document.createElementNS(NS, "feMerge");
+          ["wide", "tight", "SourceGraphic"].forEach(function (n) {
+            var m = document.createElementNS(NS, "feMergeNode");
+            m.setAttribute("in", n);
+            merge.appendChild(m);
+          });
+          filt.appendChild(merge);
+          defs.appendChild(filt);
+
+          /* Groups in draw order, so depth is honest without sorting every frame. */
+          this.gHalo = ctx.el("g", {});
+          this.gFil = ctx.el("g", { filter: "url(#" + uid + ")" });
+          this.gCore = ctx.el("g", { filter: "url(#" + uid + ")" });
+          this.gMote = ctx.el("g", { filter: "url(#" + uid + ")" });
+          this.gShock = ctx.el("g", { filter: "url(#" + uid + ")" });
+
+          function pool(g, tag, n, attrs) {
+            var out = [], k, e, p;
+            for (k = 0; k < n; k++) {
+              e = document.createElementNS(NS, tag);
+              for (p in attrs) e.setAttribute(p, attrs[p]);
+              g.appendChild(e);
+              out.push(e);
+            }
+            return out;
+          }
+
+          /* 1. halo */
+          this.NH = Math.max(4, this.params.halos | 0);
+          this.halo = pool(this.gHalo, "circle", this.NH, { fill: "none", "stroke-width": 1 });
+          this.hJit = new Float32Array(this.NH);
+          for (i = 0; i < this.NH; i++) this.hJit[i] = r();
+
+          /* 2. filaments, each with an angle, a depth and a band it listens to */
+          this.NF = Math.max(8, this.params.filaments | 0);
+          this.fA = new Float32Array(this.NF);
+          this.fZ = new Float32Array(this.NF);
+          this.fS = new Float32Array(this.NF);
+          this.fB = new Uint8Array(this.NF);
+          for (i = 0; i < this.NF; i++) {
+            this.fA[i] = r() * Math.PI * 2;
+            this.fZ[i] = 0.05 + r() * 3.2;
+            this.fS[i] = 0.55 + r() * 1.1;
+            this.fB[i] = (r() * 48) | 0;
+          }
+          this.fil = pool(this.gFil, "path", this.NF, { fill: "none", "stroke-linecap": "round", "stroke-linejoin": "round" });
+
+          /* 3. core */
+          this.NC = 5;
+          this.core = pool(this.gCore, "polygon", this.NC, { fill: "none" });
+          this.coreDot = pool(this.gCore, "circle", 1, { stroke: "none" })[0];
+
+          /* 4. motes */
+          this.NM = Math.max(8, this.params.motes | 0);
+          this.mA = new Float32Array(this.NM);
+          this.mZ = new Float32Array(this.NM);
+          this.mR = new Float32Array(this.NM);
+          for (i = 0; i < this.NM; i++) {
+            this.mA[i] = r() * Math.PI * 2;
+            this.mZ[i] = 0.05 + r() * 2.6;
+            this.mR[i] = 0.3 + r() * 0.7;
+          }
+          this.mote = pool(this.gMote, "line", this.NM, { "stroke-linecap": "round" });
+
+          /* 5. shockwaves */
+          this.NW = 6;
+          this.shock = pool(this.gShock, "circle", this.NW, { fill: "none" });
+          this.sAge = new Float32Array(this.NW);
+          for (i = 0; i < this.NW; i++) this.sAge[i] = 99;
+          this.sHead = 0;
+
+          this.spin = 0;
+          this.pulse = 0;
+          this.warp = 0;
+        },
+
+        frame: function (ctx, s) {
+          var dt = Math.min(0.05, s.dt || 0.016);
+          var W = ctx.W, H = ctx.H, cx = W / 2, cy = H / 2;
+          var focal = ctx.min() * 0.62;
+          var energy = s.energy || 0, bass = s.bass || 0, treb = s.treble || 0;
+          var i, k, a, x, y, px, py, rr;
+
+          if (s.onsetPulse) {
+            this.pulse = 1;
+            this.sAge[this.sHead] = 0;
+            this.sHead = (this.sHead + 1) % this.NW;
+          }
+          this.pulse -= dt * 3.2;
+          if (this.pulse < 0) this.pulse = 0;
+
+          /* The bloom itself breathes: tight when quiet, blown out on the drop.
+             This is most of why it reads as light rather than as geometry. */
+          this.wide.setAttribute("stdDeviation", (5 + energy * 16 + this.pulse * 8).toFixed(1));
+          this.tight.setAttribute("stdDeviation", (1.4 + energy * 2.4).toFixed(2));
+
+          this.spin += dt * (0.12 + (s.mid || 0) * 0.9) * this.params.swirl;
+          this.warp += dt * (0.5 + energy * 2.4) * this.params.speed;
+
+          /* ---- 1. halo ---- */
+          for (i = 0; i < this.NH; i++) {
+            var f = i / (this.NH - 1);
+            /* Irregular spacing: even rings read as a bullseye. */
+            var jitter = 0.72 + this.hJit[i] * 0.66;
+            var hr = focal * (0.16 + Math.pow(f, 1.22) * 1.5) * jitter * (1 + this.pulse * 0.03 + bass * 0.05);
+            var n = this.halo[i];
+            n.setAttribute("cx", cx.toFixed(1));
+            n.setAttribute("cy", cy.toFixed(1));
+            n.setAttribute("r", hr.toFixed(1));
+            n.setAttribute("stroke", ctx.hsl(196 + f * 40 + this.spin * 6, 44, 30 + f * 10, 1));
+            n.setAttribute("stroke-opacity", (0.05 + (1 - f) * 0.16).toFixed(3));
+          }
+
+          /* ---- 2. filaments ----
+             Each is a curved trail, not a segment. We sample its spiral back
+             through z and stroke the result, so it reads as a streamer being
+             drawn into the vortex. A two-point line cannot express curvature,
+             which is why the earlier version looked like scattered confetti. */
+          var TRAIL = 7;
+          for (i = 0; i < this.NF; i++) {
+            this.fZ[i] -= dt * this.fS[i] * (0.55 + energy * 2.3) * this.params.speed;
+            if (this.fZ[i] < 0.06) {
+              this.fZ[i] = 3.4;
+              this.fA[i] = ctx.rng() * Math.PI * 2;
+            }
+            var band = s.bands[this.fB[i] % s.bands.length] || 0;
+            var zNow = this.fZ[i];
+            var d = "", any = false;
+
+            for (k = 0; k < TRAIL; k++) {
+              /* walk backwards in depth: further back means earlier in its life */
+              var zk = zNow * (1 + (k / (TRAIL - 1)) * 0.55);
+              if (zk > 3.6) break;
+              var curl = (3.4 - zk) * (0.85 + this.fS[i] * 0.7);
+              var ak = this.fA[i] + this.spin * (0.6 + this.fS[i] * 0.3) + curl;
+              var kk = focal / zk;
+              var rk = (0.30 + band * 0.85) * kk;
+              d += (k ? "L" : "M") + (cx + Math.cos(ak) * rk).toFixed(1) + " " +
+                   (cy + Math.sin(ak) * rk).toFixed(1) + " ";
+              any = true;
+            }
+
+            var F = this.fil[i];
+            if (!any) { F.setAttribute("stroke-opacity", "0"); continue; }
+            F.setAttribute("d", d);
+            var near = 1 - Math.min(1, zNow / 3.4);
+            F.setAttribute("stroke", ctx.col(this.fB[i] % 4));
+            F.setAttribute("stroke-opacity", (0.08 + near * 0.72 * (0.35 + band)).toFixed(3));
+            F.setAttribute("stroke-width", (0.5 + near * 2.4 + band * 1.6).toFixed(2));
+          }
+
+          /* ---- 3. core ---- */
+          var sides = 6;
+          for (i = 0; i < this.NC; i++) {
+            var layer = i / this.NC;
+            var cr = focal * (0.05 + layer * 0.10) * (1 + bass * 0.85 + this.pulse * 0.35);
+            var rot = this.spin * (i % 2 ? -1.6 : 1.9) + layer * 0.7;
+            var pts = "";
+            for (k = 0; k < sides; k++) {
+              a = (k / sides) * Math.PI * 2 + rot;
+              var wob = 1 + Math.sin(a * 3 + this.warp * 2) * (0.06 + treb * 0.3);
+              pts += (cx + Math.cos(a) * cr * wob).toFixed(1) + "," +
+                     (cy + Math.sin(a) * cr * wob).toFixed(1) + " ";
+            }
+            var C = this.core[i];
+            C.setAttribute("points", pts);
+            C.setAttribute("stroke", ctx.hsl(30 + this.pulse * 300 + layer * 20, 90, 55 + this.pulse * 25, 1));
+            C.setAttribute("stroke-opacity", (0.35 + (1 - layer) * 0.5).toFixed(3));
+            C.setAttribute("stroke-width", (1 + (1 - layer) * 2.5 + this.pulse * 2).toFixed(2));
+          }
+          this.coreDot.setAttribute("cx", cx.toFixed(1));
+          this.coreDot.setAttribute("cy", cy.toFixed(1));
+          this.coreDot.setAttribute("r", (focal * 0.012 * (1 + bass * 2.4 + this.pulse * 1.6)).toFixed(1));
+          this.coreDot.setAttribute("fill", ctx.hsl(45, 100, 78, 1));
+          this.coreDot.setAttribute("fill-opacity", (0.5 + this.pulse * 0.5).toFixed(3));
+
+          /* ---- 4. motes ---- */
+          for (i = 0; i < this.NM; i++) {
+            var mzPrev = this.mZ[i];
+            this.mZ[i] -= dt * (1.5 + energy * 4.5) * this.mR[i] * this.params.speed;
+            if (this.mZ[i] < 0.04) { this.mZ[i] = 2.8; mzPrev = 2.8; }
+            a = this.mA[i] + this.spin * 0.25;
+            var kk = focal / this.mZ[i], kp = focal / mzPrev;
+            var spread = 0.42 + this.mR[i] * 0.5;
+            var M = this.mote[i];
+            M.setAttribute("x1", (cx + Math.cos(a) * spread * kp).toFixed(1));
+            M.setAttribute("y1", (cy + Math.sin(a) * spread * kp).toFixed(1));
+            M.setAttribute("x2", (cx + Math.cos(a) * spread * kk).toFixed(1));
+            M.setAttribute("y2", (cy + Math.sin(a) * spread * kk).toFixed(1));
+            var mn = 1 - Math.min(1, this.mZ[i] / 2.8);
+            M.setAttribute("stroke", ctx.hsl(190 + mn * 60, 80, 70, 1));
+            M.setAttribute("stroke-opacity", (mn * 0.85).toFixed(3));
+            M.setAttribute("stroke-width", (0.4 + mn * 2.2).toFixed(2));
+          }
+
+          /* ---- 5. shockwaves ---- */
+          for (i = 0; i < this.NW; i++) {
+            var S = this.shock[i];
+            this.sAge[i] += dt;
+            var age = this.sAge[i];
+            if (age > 1.6) { S.setAttribute("stroke-opacity", "0"); continue; }
+            var p = age / 1.6;
+            S.setAttribute("cx", cx.toFixed(1));
+            S.setAttribute("cy", cy.toFixed(1));
+            S.setAttribute("r", (focal * (0.05 + p * 1.5)).toFixed(1));
+            S.setAttribute("stroke", ctx.col(0));
+            S.setAttribute("stroke-opacity", ((1 - p) * (1 - p) * 0.7).toFixed(3));
+            S.setAttribute("stroke-width", ((1 - p) * 4 + 0.5).toFixed(2));
+          }
+        }
+      };
+    },
+    pillars: function (opts) {
+      opts = opts || {};
+      return {
+        name: opts.name || "pillars",
+        params: { count: opts.count || 9, horizon: opts.horizon || 0.62 },
+
+        setup: function (ctx) {
+          this.N = Math.max(3, this.params.count | 0);
+          this.cols = ctx.pool("rect", this.N, {});
+          this.refl = ctx.pool("rect", this.N, {});
+          this.floor = ctx.pool("line", 9, { "stroke-width": 1 });
+          this.h = new Float32Array(this.N);
+          this.target = new Float32Array(this.N);
+          this.step = 0; this.lastBeat = 0;
+        },
+
+        frame: function (ctx, s) {
+          var dt = Math.min(0.05, s.dt || 0.016);
+          var W = ctx.W, H = ctx.H, hy = H * this.params.horizon, n = this.N;
+          var slot = W / n;
+
+          /* Values latch on the beat and hold. Continuous motion reads as mush
+             at distance; stepped motion reads as rhythm. */
+          if (s.onsetPulse) {
+            this.step++;
+            for (var i = 0; i < n; i++) {
+              var band = s.bands[((i / n) * s.bands.length) | 0] || 0;
+              /* alternate emphasis each beat so it swings rather than pumps */
+              var accent = ((i + this.step) % 2 === 0) ? 1 : 0.45;
+              this.target[i] = Math.pow(band, 0.7) * accent;
+            }
+          }
+
+          for (var j = 0; j < n; j++) {
+            this.h[j] += (this.target[j] - this.h[j]) * Math.min(1, dt * 14);
+            var ht = this.h[j] * hy * 0.92 + 4;
+            var x = j * slot + slot * 0.14;
+            var w = slot * 0.72;
+
+            var C = this.cols[j];
+            C.setAttribute("x", x.toFixed(1));
+            C.setAttribute("y", (hy - ht).toFixed(1));
+            C.setAttribute("width", w.toFixed(1));
+            C.setAttribute("height", ht.toFixed(1));
+            C.setAttribute("fill", ctx.col(j % 4));
+            C.setAttribute("fill-opacity", (0.55 + this.h[j] * 0.4).toFixed(3));
+
+            var Rf = this.refl[j];
+            Rf.setAttribute("x", x.toFixed(1));
+            Rf.setAttribute("y", hy.toFixed(1));
+            Rf.setAttribute("width", w.toFixed(1));
+            Rf.setAttribute("height", (ht * 0.55).toFixed(1));
+            Rf.setAttribute("fill", ctx.col(j % 4));
+            Rf.setAttribute("fill-opacity", (0.06 + this.h[j] * 0.10).toFixed(3));
+          }
+
+          /* Perspective floor: a few lines converging below the horizon. */
+          for (var k = 0; k < this.floor.length; k++) {
+            var t = (k / (this.floor.length - 1)) * 2 - 1;
+            var L = this.floor[k];
+            L.setAttribute("x1", (W / 2 + t * W * 0.5).toFixed(1));
+            L.setAttribute("y1", H.toFixed(1));
+            L.setAttribute("x2", (W / 2 + t * W * 0.08).toFixed(1));
+            L.setAttribute("y2", hy.toFixed(1));
+            L.setAttribute("stroke", ctx.hsl(190, 40, 40, 1));
+            L.setAttribute("stroke-opacity", (0.10 + s.energy * 0.22).toFixed(3));
+          }
+        }
+      };
+    },
   };
 
   /* =====================================================================
