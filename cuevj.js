@@ -340,6 +340,14 @@
   /* =====================================================================
      AUDIO band/onset extraction (shared by all audio sources)
      ===================================================================== */
+  /* Silence handling for live audio. A microphone never reads exactly zero,
+     so these decide what counts as "nothing is playing". Raise them if a
+     noisy room still drives the visuals; lower them if quiet music is
+     being ignored. */
+  var NOISE_FLOOR = 0.014;  /* per-band level treated as silence */
+  var MIN_SCALE = 0.07;     /* smallest ceiling the AGC may normalize against */
+  var ENERGY_FLOOR = 0.012; /* overall RMS treated as silence */
+
   function extractAudio(state, signal) {
     var an = state.an; if (!an) return;
     an.getByteFrequencyData(state.freq);
@@ -350,7 +358,9 @@
     for (i = 0; i < n; i++) { var v = (state.time[i] - 128) / 128; sum += v * v; }
     for (i = 0; i < wl; i++) signal.wave[i] = (state.time[i * stride] - 128) / 128;
     var energy = Math.sqrt(sum / n);
-    signal.energy = lerp(signal.energy, clamp(energy * 2.2, 0, 1), 0.35);
+    /* Same gate on overall level, so a silent room settles to zero rather
+       than hovering on mic self-noise. */
+    signal.energy = lerp(signal.energy, clamp((energy - ENERGY_FLOOR) * 2.4, 0, 1), 0.35);
 
     /* frequency -> log-spaced bands w/ per-band AGC */
     var bins = state.freq.length, N = signal.bands.length;
@@ -365,8 +375,14 @@
       var acc = 0, c = 0;
       for (i = i0; i < i1; i++) { acc += state.freq[i]; c++; flux += Math.max(0, state.freq[i] - state.prev[i]); state.prev[i] = state.freq[i]; }
       var raw = c ? acc / c / 255 : 0;
-      state.bandMax[b] = Math.max(raw, state.bandMax[b] * 0.992 + 0.0001);
-      var val = clamp(raw / (state.bandMax[b] || 1), 0, 1);
+      /* Gate first, then normalize. Without a noise floor the AGC divides a
+         silent room's mic hiss by an ever-shrinking ceiling and pushes it to
+         full scale, so silence looked identical to music. Subtracting the
+         floor and refusing to normalize against a ceiling below MIN_SCALE
+         means quiet reads as quiet. */
+      var gated = raw > NOISE_FLOOR ? raw - NOISE_FLOOR : 0;
+      state.bandMax[b] = Math.max(gated, state.bandMax[b] * 0.992);
+      var val = clamp(gated / Math.max(state.bandMax[b], MIN_SCALE), 0, 1);
       signal.bands[b] = lerp(signal.bands[b], val, 0.4);
     }
 
