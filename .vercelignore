@@ -1,0 +1,6 @@
+# Kept in the repo as history, never served
+reference/
+
+# Local tooling
+.claude/
+CLAUDE.md

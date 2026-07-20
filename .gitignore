@@ -1,0 +1,7 @@
+# Local agent tooling, not part of the framework
+.claude/
+CLAUDE.md
+CLAUDE.local.md
+
+# Pre-rename original, kept locally as history
+reference/
