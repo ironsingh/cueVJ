@@ -884,7 +884,7 @@
       opts = opts || {};
       return {
         name: opts.name || "skyline",
-        params: { bars: opts.bars || 36, floor: opts.floor || 1 },
+        params: { bars: opts.bars || 36, floor: opts.floor || 1, gain: opts.gain == null ? 1 : opts.gain },
         setup: function (ctx) {
           this.nb = Math.max(8, this.params.bars | 0);
           this.fH = ctx.pool("line", 14, {});            // floor (drawn first = behind)
@@ -898,7 +898,12 @@
           var bw = W / n;
           for (var i = 0; i < n; i++) {
             var v = clamp(s.bands[i % s.bands.length], 0, 1);
-            var h = v * hy * 1.35 * (1 + s.onset * 0.2);
+            /* Cap the skyline at half the space above the horizon. The old
+               1.35 multiplier let a full band draw a bar taller than the
+               horizon itself, so loud passages filled the screen with a wall
+               of colour and the scene stopped reading as a skyline. */
+            var maxH = hy * 0.5;
+            var h = clamp(v * maxH * this.params.gain * (1 + s.onset * 0.15), 0, maxH);
             var x = i * bw, col = ctx.hsl((i / n) * 140 + 180 + t * 10, 82, 56 + s.energy * 10, 0.92);
             var B = this.bars[i];
             B.setAttribute("x", (x + bw * 0.1).toFixed(1)); B.setAttribute("y", (hy - h).toFixed(1));
