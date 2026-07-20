@@ -1190,7 +1190,7 @@
     /* =================================================================
        SKETCH PACK: line-art that draws itself out of nothing, holds,
        then erases. "An animation of thinking." Uses ctx.sketch().
-       think · ideate · contour · scribble
+       think · ideate · contour
        ================================================================= */
 
     /* THINK: a geometric web sketched ring-by-ring from the inside out,
@@ -1310,41 +1310,6 @@
             C.setAttribute("stroke", ctx.hsl(180 + grow * 120 + t * 12 + s.treble * 50, 72, 62, 1));
             ctx.sketch(C, life, 0.42, 0.18);
           }
-        }
-      };
-    },
-
-    /* SCRIBBLE: a single pen-line that draws itself through space while
-       its tail erases; stream of consciousness. */
-    scribble: function (opts) {
-      opts = opts || {};
-      return {
-        name: opts.name || "scribble",
-        params: { speed: opts.speed || 1, wander: opts.wander || 1, window: opts.window || 0.16 },
-        setup: function (ctx) {
-          this.N = 220;
-          this.path = ctx.el("path", { fill: "none", "stroke-width": 2, "stroke-linecap": "round", "stroke-linejoin": "round" });
-          this.tip = ctx.el("circle", { stroke: "none" });
-          this.head = 0;
-        },
-        frame: function (ctx, s) {
-          var W = ctx.W, H = ctx.H, cx = W / 2, cy = H / 2, t = s.t, dt = s.dt || 0.016;
-          this.head += dt * (0.05 + s.energy * 0.16) * this.params.speed;
-          var N = this.N, wd = this.params.wander, d = "", j, hx = cx, hy = cy;
-          for (j = 0; j < N; j++) {
-            var tt = this.head + (j / N) * 1.4;
-            var x = cx + (Math.sin(tt * 1.7) + Math.sin(tt * 0.9 + 1.3)) * 0.5 * W * 0.34 * wd;
-            var y = cy + (Math.cos(tt * 1.3) + Math.sin(tt * 2.1 + 0.7)) * 0.5 * H * 0.34 * wd;
-            d += (j ? "L" : "M") + x.toFixed(1) + " " + y.toFixed(1) + " ";
-            if (j === N - 1) { hx = x; hy = y; }
-          }
-          this.path.setAttribute("d", d);
-          this.path.setAttribute("stroke", ctx.hsl(t * 24 + s.treble * 80, 78, 62, 0.95));
-          ctx.segment(this.path, 1 - this.params.window, 1);
-          this.path.setAttribute("opacity", 1);
-          this.tip.setAttribute("cx", hx.toFixed(1)); this.tip.setAttribute("cy", hy.toFixed(1));
-          this.tip.setAttribute("r", (2 + s.onset * 4).toFixed(2));
-          this.tip.setAttribute("fill", ctx.col(0));
         }
       };
     }

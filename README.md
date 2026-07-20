@@ -23,8 +23,8 @@ visuals never sit still even with no input at all.
 A **director** cross-fades between them along a timeline that advances by time, by beat, or, in the
 mode that makes this feel like an instrument, by **scroll**. Scrubbing the page *is* the performance.
 
-21 scenes ship today, from geometric (`tunnel`, `grid`, `terrain`, `lasers`) to hand-drawn
-(`scribble`, `contour`, `ideate`).
+20 scenes ship today, from geometric (`tunnel`, `grid`, `terrain`, `lasers`) to hand-drawn
+(`contour`, `ideate`, `think`).
 
 ## Why
 
